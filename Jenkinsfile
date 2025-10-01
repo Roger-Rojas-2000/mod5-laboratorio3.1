@@ -53,6 +53,9 @@ pipeline {
       steps {
         echo "Building app (npm install and tests)..."
         sh '''
+          # Cargar fnm y Node
+          export PATH="$HOME/.fnm:$PATH"
+          eval "$(fnm env)"
           cd src
           pwd
           ls -l
