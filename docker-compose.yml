@@ -1,7 +1,7 @@
 version: '3.7'
 services:
   app:
-    image: ${DOCKER_IMAGE_NAME:-devsecops-labs-app:local}
+    image: ${DOCKER_IMAGE_NAME:-devsecops-labs-app:latest}
     build:
       context: .
       dockerfile: Dockerfile

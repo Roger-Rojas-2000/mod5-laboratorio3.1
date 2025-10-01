@@ -6,7 +6,7 @@ pipeline {
     DOCKER_CREDENTIALS = "docker-registry-credentials"
     GIT_CREDENTIALS = "git-credentials"
     //DOCKER_IMAGE_NAME = "${env.DOCKER_REGISTRY}/devsecops-labs/app:latest"
-    DOCKER_IMAGE_NAME = "devsecops-labs/app:latest"
+    DOCKER_IMAGE_NAME = "devsecops-labs-app:latest"
     SSH_CREDENTIALS = "ssh-deploy-key"
     STAGING_URL = "http://localhost:3000"
   }
@@ -14,7 +14,7 @@ pipeline {
   options {
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '20'))
-    //ansiColor('xterm')
+    ansiColor('xterm')
   }
 
   stages {
@@ -28,7 +28,10 @@ pipeline {
 
     stage('SAST - Semgrep') {
       agent {
-        docker { image 'returntocorp/semgrep:latest' }
+        docker { 
+          image 'returntocorp/semgrep:latest'
+        }
+        label 'docker-node'
       }
       steps {
         echo "Running Semgrep (SAST)..."
@@ -50,6 +53,7 @@ pipeline {
         docker { 
           image 'owasp/dependency-check:latest' 
         }
+        label 'docker-node'
       }
       steps {
         echo "Running SCA / Dependency-Check..."
@@ -76,7 +80,7 @@ pipeline {
     }
 
     stage('Docker Build & Trivy Scan') {
-      agent { label 'docker' }
+      //agent { label 'docker' }
       steps {
         echo "Building Docker image..."
         sh '''
@@ -92,7 +96,7 @@ pipeline {
       }
     }
 
-    /*stage('Policy Check - Fail on HIGH/CRITICAL CVEs') {
+    stage('Policy Check - Fail on HIGH/CRITICAL CVEs') {
             steps {
                 sh '''
                     chmod +x scripts/scan_trivy_fail.sh
@@ -103,7 +107,7 @@ pipeline {
                     fi
                 '''
             }
-    } */
+    }
 
     /*stage('Push Image (optional)') {
       when {
@@ -122,12 +126,12 @@ pipeline {
     }*/
 
     stage('Deploy to Staging (docker-compose)') {
-      agent { label 'docker' }
+      //agent { label 'docker' }
       steps {
         echo "Deploying to staging with docker-compose..."
         sh '''
           docker-compose -f docker-compose.yml down || true
-          docker-compose -f docker-compose.yml up -d --build
+          docker-compose -f docker-compose.yml up -d
           sleep 8
           docker ps -a
         '''
@@ -135,7 +139,7 @@ pipeline {
     }
 
     stage('DAST - OWASP ZAP scan') {
-      agent { label 'docker' }
+      //agent { label 'docker' }
       steps {
         echo "Running DAST (OWASP ZAP) against ${STAGING_URL} ..."
         sh '''
