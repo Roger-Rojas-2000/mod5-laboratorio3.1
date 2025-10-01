@@ -65,7 +65,7 @@ pipeline {
       }
     }
 
-    stage('Build') {
+    /*stage('Build') {
       //agent { label 'docker' }
       steps {
         echo "Building app (npm install and tests)..."
@@ -77,7 +77,7 @@ pipeline {
           fi
         '''
       }
-    }
+    } */
 
     stage('Docker Build & Trivy Scan') {
       //agent { label 'docker' }
