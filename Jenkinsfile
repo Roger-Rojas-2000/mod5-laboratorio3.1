@@ -49,7 +49,7 @@ pipeline {
     }
 
     stage('Build') {
-      //agent { label 'docker' }
+      agent { label 'docker-node' }
       steps {
         echo "Building app (npm install and tests)..."
         sh '''
@@ -81,7 +81,7 @@ pipeline {
     }
 
     stage('Docker Build & Trivy Scan') {
-      //agent { label 'docker' }
+      agent { label 'docker-node' }
       steps {
         echo "Building Docker image..."
         sh '''
@@ -127,7 +127,7 @@ pipeline {
     }*/
 
     stage('Deploy to Staging (docker-compose)') {
-      //agent { label 'docker' }
+      agent { label 'docker-node' }
       steps {
         echo "Deploying to staging with docker-compose..."
         sh '''
@@ -140,7 +140,7 @@ pipeline {
     }
 
     stage('DAST - OWASP ZAP scan') {
-      //agent { label 'docker' }
+      agent { label 'docker-node' }
       steps {
         echo "Running DAST (OWASP ZAP) against ${STAGING_URL} ..."
         sh '''
