@@ -48,24 +48,7 @@ pipeline {
       }
     }
 
-    stage('SCA - Dependency Check (OWASP dependency-check)') {
-      agent {
-        docker { 
-          image 'owasp/dependency-check:latest' 
-          label 'docker-node'
-        }
-      }
-      steps {
-        echo "Running SCA / Dependency-Check..."
-        sh '''
-          mkdir -p dependency-check-reports
-          dependency-check --project "devsecops-labs" --scan . --format JSON --out dependency-check-reports || true
-        '''
-        archiveArtifacts artifacts: 'dependency-check-reports/**', allowEmptyArchive: true
-      }
-    }
-
-    /*stage('Build') {
+    stage('Build') {
       //agent { label 'docker' }
       steps {
         echo "Building app (npm install and tests)..."
@@ -77,7 +60,25 @@ pipeline {
           fi
         '''
       }
-    } */
+    }
+
+    stage('SCA - Dependency Check (OWASP dependency-check)') {
+      agent {
+        docker { 
+          image 'owasp/dependency-check:latest' 
+          label 'docker-node'
+        }
+      }
+      steps {
+        echo "Running SCA / Dependency-Check..."
+        sh '''
+          mkdir -p dependency-check-reports
+          ls -l
+          dependency-check --project "devsecops-labs" --scan . --format JSON --out dependency-check-reports || true
+        '''
+        archiveArtifacts artifacts: 'dependency-check-reports/**', allowEmptyArchive: true
+      }
+    }
 
     stage('Docker Build & Trivy Scan') {
       //agent { label 'docker' }
