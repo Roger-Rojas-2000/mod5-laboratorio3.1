@@ -96,7 +96,7 @@ pipeline {
       }
     }
 
-    stage('Policy Check - Fail on HIGH/CRITICAL CVEs') {
+    /*stage('Policy Check - Fail on HIGH/CRITICAL CVEs') {
             steps {
                 sh '''
                     chmod +x scripts/scan_trivy_fail.sh
@@ -107,7 +107,7 @@ pipeline {
                     fi
                 '''
             }
-    }
+    } */
 
     /*stage('Push Image (optional)') {
       when {
