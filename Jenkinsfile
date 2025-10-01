@@ -54,6 +54,8 @@ pipeline {
         echo "Building app (npm install and tests)..."
         sh '''
           cd src
+          pwd
+          ls -l
           npm install --no-audit --no-fund
           if [ -f package.json ]; then
             if npm test --silent; then echo "Tests OK"; else echo "Tests failed (continue)"; fi
