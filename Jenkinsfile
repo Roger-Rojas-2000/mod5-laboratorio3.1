@@ -1,135 +1,165 @@
 pipeline {
-  agent { label 'docker-node'}
+  agent { label 'docker-node' }
 
   environment {
-    //DOCKER_REGISTRY = "myregistry.example.com"
-    DOCKER_CREDENTIALS = "docker-registry-credentials"
-    GIT_CREDENTIALS = "git-credentials"
-    //DOCKER_IMAGE_NAME = "${env.DOCKER_REGISTRY}/devsecops-labs/app:latest"
     DOCKER_IMAGE_NAME = "devsecops-labs-app:latest"
-    SSH_CREDENTIALS = "ssh-deploy-key"
     STAGING_URL = "http://localhost:3000"
   }
 
   options {
     timestamps()
     buildDiscarder(logRotator(numToKeepStr: '20'))
-    //ansiColor('xterm')
   }
 
   stages {
 
     stage('Checkout') {
       steps {
-        checkout scm
-        sh 'ls -la'
+        git branch: 'main',
+         url: 'https://github.com/Roger-Rojas-2000/mod5-laboratorio3.1.git'
       }
     }
-
-    stage('SAST - Semgrep') {
-      agent {
-        docker { 
-          image 'returntocorp/semgrep:latest'
-          label 'docker-node'
-        }
-      }
+    
+ stage('SAST - Semgrep') {
       steps {
         echo "Running Semgrep (SAST)..."
         sh '''
-          semgrep --config=auto --json --output semgrep-results.json src || true
+          docker run --rm -v $PWD:/src returntocorp/semgrep:latest semgrep --config=auto --json --output semgrep-results.json /src || true
           cat semgrep-results.json || true
         '''
         archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
       }
-      post {
-        always {
-          script { sh 'echo "Semgrep done."' }
-        }
-      }
     }
-
-    stage('Build') {
-      agent { label 'docker-node' }
-      steps {
-        echo "Building app (npm install and tests)..."
+    
+  stage('Build') {
+    steps {
+        echo "Building app (npm install and tests) using Docker..."
         sh '''
-          cd src
-          pwd
-          ls -l
-          npm install --no-audit --no-fund
-          if [ -f package.json ]; then
-            if npm test --silent; then echo "Tests OK"; else echo "Tests failed (continue)"; fi
-          fi
-        '''
-      }
-    }
-
-    stage('SCA - Dependency Check (OWASP dependency-check)') {
-      agent {
-        docker { 
-          image 'owasp/dependency-check:latest' 
-          label 'docker-node'
+        docker run --rm \
+            -v $PWD:/app \
+            -w /app \
+            node:20 \
+            bash -c "npm install --no-audit --no-fund && \
+                    if [ -f package.json ]; then \
+                        if npm test --silent; then echo 'Tests OK'; else echo 'Tests failed (continue)'; fi; \
+                    fi"
+         '''
         }
-      }
-      steps {
-        echo "Running SCA / Dependency-Check..."
-        sh '''
-          mkdir -p dependency-check-reports
-          ls -l
-          dependency-check --project "devsecops-labs" --scan . --format JSON --out dependency-check-reports || true
-        '''
-        archiveArtifacts artifacts: 'dependency-check-reports/**', allowEmptyArchive: true
-      }
     }
 
-    stage('Docker Build & Trivy Scan') {
-      agent { label 'docker-node' }
+  stage('SCA - Dependency Check (OWASP dependency-check)') {
+    steps {
+        echo 'Running Dependency-Check with debug log...'
+        sh '''
+            mkdir -p dependency-check-reports dependency-check-data
+            docker run --rm -u 0:0 \
+                -v $PWD:/src \
+                -v $PWD/dependency-check-data:/usr/share/dependency-check/data \
+                -v $PWD/dependency-check-reports:/report \
+                owasp/dependency-check:12.1.6 \
+                dependency-check.sh \
+                --project devsecops-labs \
+                --scan src \
+                --format JSON \
+                --out /report/dependency-check-report.json || true
+            ls -l dependency-check-reports
+        '''
+        archiveArtifacts artifacts: 'dependency-check-reports/**', allowEmptyArchive: false
+    }
+  }
+
+
+/*stage('PaC - Checkov on Dockerfile') {
+  steps {
+    echo "Running Policy as Code (Checkov)..."
+    sh '''
+      docker run --rm -v $PWD:/project -w /project bridgecrew/checkov \
+        -d /project --framework dockerfile --output json > checkov-report.json || true
+      docker run --rm -v $PWD:/project -w /project bridgecrew/checkov \
+        -d /project --framework dockerfile --output cli > checkov-cli-report.txt || true
+
+      echo "Checkov CLI Report:"
+      cat checkov-cli-report.txt
+    '''
+    archiveArtifacts artifacts: 'checkov-report.json,checkov-cli-report.txt', allowEmptyArchive: true
+  }
+} 
+
+// funciona
+stage('PaC - Checkov Validation') {
+  steps {
+    echo "Validating Checkov report..."
+    sh '''
+        echo "Full Checkov summary:"
+        jq '.summary' checkov-report.json
+    
+      FAILED=$(jq '.summary.failed' checkov-report.json)
+      echo "Checkov failed checks: $FAILED"
+      if [ "$FAILED" -gt 0 ]; then
+        echo "Critical policy violations detected. Failing pipeline."
+        exit 1
+      else
+        echo "No critical policy violations."
+      fi
+    '''
+  }
+} */
+
+stage('Docker Build & Trivy Scan') {
       steps {
         echo "Building Docker image..."
         sh '''
-          docker build -t ${DOCKER_IMAGE_NAME} -f Dockerfile .
+          docker build -t ${DOCKER_IMAGE_NAME} -f .
         '''
+
         echo "Scanning image with Trivy..."
         sh '''
-          mkdir -p trivy-reports
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --format json --output trivy-reports/trivy-report.json ${DOCKER_IMAGE_NAME} || true
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --severity HIGH,CRITICAL ${DOCKER_IMAGE_NAME} || true
+          mkdir -p trivy-reports trivy-cache
+
+          # Report JSON
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd)/trivy-cache:/root/.cache/ \
+            -v $(pwd)/trivy-reports:/reports \
+            aquasec/trivy image \
+              --format json --output /reports/trivy-report.json ${DOCKER_IMAGE_NAME} || true
+
+          # Fail on HIGH/CRITICAL vulnerabilities
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd)/trivy-cache:/root/.cache/ \
+            aquasec/trivy image \
+              --severity HIGH,CRITICAL ${DOCKER_IMAGE_NAME} || true
         '''
         archiveArtifacts artifacts: 'trivy-reports/**', allowEmptyArchive: true
       }
-    }
+ }
 
-    /*stage('Policy Check - Fail on HIGH/CRITICAL CVEs') {
-            steps {
-                sh '''
-                    chmod +x scripts/scan_trivy_fail.sh
-                    ./scripts/scan_trivy_fail.sh $DOCKER_IMAGE_NAME || exit_code=$?
-                    if [ "${exit_code:-0}" -eq 2 ]; then
-                        echo "Failing pipeline due to HIGH/CRITICAL vulnerabilities detected by Trivy."
-                        exit 1
-                    fi
-                '''
-            }
-    } */
+stage('PaC - Trivy Validation') {
+  steps {
+    echo "Validating Trivy report..."
+    sh '''
+      # Contar vulnerabilidades CRÍTICAS y ALTAS
+      HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-reports/trivy-report.json)
+      CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-reports/trivy-report.json)
 
-    /*stage('Push Image (optional)') {
-      when {
-        expression { return env.DOCKER_REGISTRY != null && env.DOCKER_REGISTRY != "" }
-      }
-      steps {
-        echo "Pushing image to registry ${DOCKER_REGISTRY}..."
-        withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo "$DOCKER_PASS" | docker login ${DOCKER_REGISTRY} -u "$DOCKER_USER" --password-stdin
-            docker push ${DOCKER_IMAGE_NAME}
-            docker logout ${DOCKER_REGISTRY}
-          '''
-        }
-      }
-    }*/
+      echo "HIGH vulnerabilities: $HIGH"
+      echo "CRITICAL vulnerabilities: $CRITICAL"
 
-    stage('Deploy to Staging (docker-compose)') {
-      agent { label 'docker-node' }
+      TOTAL=$((CRITICAL))
+
+      if [ "$TOTAL" -gt 0 ]; then
+        echo "Security issues detected! Failing pipeline."
+        exit 1
+      else
+        echo "No HIGH/CRITICAL vulnerabilities found."
+      fi
+    '''
+  }
+}    
+    
+  
+stage('Deploy to Staging (docker-compose)') {
       steps {
         echo "Deploying to staging with docker-compose..."
         sh '''
@@ -139,22 +169,54 @@ pipeline {
           docker ps -a
         '''
       }
-    }
+}
 
-    stage('DAST - OWASP ZAP scan') {
-      agent { label 'docker-node' }
-      steps {
-        echo "Running DAST (OWASP ZAP) against ${STAGING_URL} ..."
+stage('DAST - OWASP ZAP scan') {
+    steps {
+        echo "Running DAST (OWASP ZAP) BASELINE scan (Última solución de permisos)..."
         sh '''
-          mkdir -p zap-reports
-          docker run --rm --network host ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t ${STAGING_URL} -r zap-reports/zap-report.html || true
+            USER_ID=$(id -u)
+            GROUP_ID=$(id -g)
+
+            mkdir -p zap-reports
+            docker run --rm --network host \
+                -v $PWD/zap-reports:/zap/wrk \
+                --user 0 \
+                ghcr.io/zaproxy/zaproxy:stable \
+                /bin/bash -c "zap-baseline.py -t http://localhost:3000 -r zap-report.html || true; \
+                              chown -R ${USER_ID}:${GROUP_ID} /zap/wrk; \
+                              chmod -R 775 /zap/wrk"
+
+            ls -l zap-reports
         '''
         archiveArtifacts artifacts: 'zap-reports/**', allowEmptyArchive: true
-      }
     }
+}
 
-  } // stages
+/*stage('Upload Artifacts to Google Drive') {
+  steps {
+    echo "Uploading artifacts to Google Drive..."
+    sh '''
+      # Carpeta donde Jenkins guarda los reportes
+      ARTIFACTS_DIR=$PWD
 
+      # Remote de rclone configurado (gdrive) y carpeta en Drive
+      REMOTE="godrive:JenkinsReports/${BUILD_NUMBER}"
+
+      # Crear carpeta en Drive y subir todo
+      rclone mkdir "${REMOTE}" || true
+      rclone copy "${ARTIFACTS_DIR}/semgrep-results.json" "${REMOTE}/" -P || true
+      rclone copy "${ARTIFACTS_DIR}/dependency-check-reports/" "${REMOTE}/dependency-check-reports/" -P || true
+      rclone copy "${ARTIFACTS_DIR}/trivy-reports/" "${REMOTE}/trivy-reports/" -P || true
+      rclone copy "${ARTIFACTS_DIR}/zap-reports/" "${REMOTE}/zap-reports/" -P || true
+
+      echo "Artifacts uploaded to ${REMOTE}"
+    '''
+  }
+} */
+
+} // stages
+  
   post {
     always {
       echo "Pipeline finished. Collecting artifacts..."
@@ -163,5 +225,4 @@ pipeline {
       echo "Pipeline failed!"
     }
   }
-
 }
