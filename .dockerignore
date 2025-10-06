@@ -1,0 +1,4 @@
+trivy-cache
+dependency-check-data
+dependency-check-reports
+.git
