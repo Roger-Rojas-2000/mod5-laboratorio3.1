@@ -35,15 +35,14 @@ pipeline {
     steps {
         echo "Building app (npm install and tests) using Docker..."
         sh '''
-        docker run --rm \
-            -v $PWD/src:/app \
-            -w /app \
-            node:20 \
-            bash -c "npm install --no-audit --no-fund && \
-                    if [ -f package.json ]; then \
-                        if npm test --silent; then echo 'Tests OK'; else echo 'Tests failed (continue)'; fi; \
-                    fi"
-         '''
+          docker run --rm -v /home/roger/workspace/mod5-laboratorio3.1/src:/app -w /app node:20 bash -c "
+          apt-get update && apt-get install -y python3 make g++ && \
+          npm install --no-audit --no-fund && \
+          if [ -f package.json ]; then
+          if npm test --silent; then echo 'Tests OK'; else echo 'Tests failed (continue)'; fi;
+          fi
+          "
+        '''
         }
     }
 
