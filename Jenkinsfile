@@ -29,7 +29,7 @@ pipeline {
         '''
         archiveArtifacts artifacts: 'semgrep-results.json', allowEmptyArchive: true
       }
-    }
+ }
     
   stage('Build') {
     steps {
@@ -110,7 +110,7 @@ stage('Docker Build & Trivy Scan') {
       steps {
         echo "Building Docker image..."
         sh '''
-          docker build -t ${DOCKER_IMAGE_NAME} -f .
+          docker build -t ${DOCKER_IMAGE_NAME} -f Dockerfile .
         '''
 
         echo "Scanning image with Trivy..."
